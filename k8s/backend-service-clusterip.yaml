@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service              # This name is how other pods will find the backend
+spec:
+  type: ClusterIP                    # Internal-only access (default type)
+  selector:
+    app: backend                     # Routes traffic to pods with label app=backend
+  ports:
+    - protocol: TCP
+      port: 5000                     # Port exposed inside the cluster
+      targetPort: 5000               # Port on the actual pod/container

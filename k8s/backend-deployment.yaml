@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-deployment
+  labels:
+    app: backend
+spec:
+  replicas: 2                        # Run 2 copies of our backend pod
+  selector:
+    matchLabels:
+      app: backend                   # This deployment manages pods with label app=backend
+  template:
+    metadata:
+      labels:
+        app: backend                 # Label applied to every pod created
+    spec:
+      containers:
+        - name: backend
+          image: k8s-demo-backend:latest   # Local image we build
+          imagePullPolicy: Never            # Use local image (for kind cluster)
+          ports:
+            - containerPort: 5000    # Port the backend listens on inside the container
+          env:
+            - name: NODE_ENV
+              value: "production"

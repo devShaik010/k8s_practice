@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service-nodeport   # Name of this service
+spec:
+  type: NodePort                    # Exposes the service on each Node's IP at a static port
+  selector:
+    app: frontend                   # Routes to pods with label app=frontend
+  ports:
+    - protocol: TCP
+      port: 80                      # Port exposed inside the cluster
+      targetPort: 80                # Port on the pod (nginx)
+      nodePort: 30080               # Port on the Node that external traffic hits (30000-32767)

@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+  labels:
+    app: frontend
+spec:
+  replicas: 2                        # Run 2 copies of our frontend pod
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: k8s-demo-frontend:latest  # Local image we build
+          imagePullPolicy: Never            # Use local image (for kind cluster)
+          ports:
+            - containerPort: 80      # nginx listens on port 80

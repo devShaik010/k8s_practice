@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service-lb         # Name of this service
+spec:
+  type: LoadBalancer                # Requests an external Load Balancer (cloud provider)
+  selector:
+    app: frontend                   # Routes to pods with label app=frontend
+  ports:
+    - protocol: TCP
+      port: 80                      # External port
+      targetPort: 80                # Port on the pod
+# NOTE: In a kind (local) cluster, LoadBalancer stays in "Pending" state
+# because there is no real cloud provider to assign an External IP.
+# On AWS EKS / GKE / AKS it would automatically get a public IP.
+# To demo this locally with kind, use MetalLB or use NodePort instead.

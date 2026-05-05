@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>K8s Demo App</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    header h1 {
+      font-size: 2.4rem;
+      color: #38bdf8;
+      margin-bottom: 8px;
+    }
+
+    header p {
+      color: #94a3b8;
+      font-size: 1rem;
+    }
+
+    .badge {
+      display: inline-block;
+      background: #1e3a5f;
+      color: #38bdf8;
+      border: 1px solid #38bdf8;
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 0.8rem;
+      margin-top: 10px;
+    }
+
+    .cards {
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+      justify-content: center;
+      width: 100%;
+      max-width: 900px;
+    }
+
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 28px;
+      flex: 1;
+      min-width: 260px;
+    }
+
+    .card h2 {
+      font-size: 1rem;
+      color: #94a3b8;
+      margin-bottom: 16px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .card .value {
+      font-size: 1.1rem;
+      color: #e2e8f0;
+      word-break: break-all;
+    }
+
+    .card .value.highlight {
+      color: #4ade80;
+      font-weight: 600;
+      font-size: 1.2rem;
+    }
+
+    .btn {
+      margin-top: 30px;
+      padding: 12px 32px;
+      background: #38bdf8;
+      color: #0f172a;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn:hover { background: #0ea5e9; }
+
+    table {
+      width: 100%;
+      max-width: 900px;
+      border-collapse: collapse;
+      margin-top: 36px;
+      background: #1e293b;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    th {
+      background: #0f172a;
+      color: #38bdf8;
+      padding: 14px 20px;
+      text-align: left;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    td {
+      padding: 14px 20px;
+      border-top: 1px solid #334155;
+      color: #cbd5e1;
+    }
+
+    tr:hover td { background: #273549; }
+
+    .status {
+      margin-top: 16px;
+      font-size: 0.85rem;
+      color: #64748b;
+    }
+
+    .error { color: #f87171; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>☸️ K8s Demo App</h1>
+    <p>Frontend talking to Backend inside a Kubernetes cluster</p>
+    <span class="badge">Teaching Demo</span>
+  </header>
+
+  <div class="cards">
+    <div class="card">
+      <h2>Backend Message</h2>
+      <div class="value highlight" id="message">Loading...</div>
+    </div>
+    <div class="card">
+      <h2>Serving Pod (Backend)</h2>
+      <div class="value" id="pod">Loading...</div>
+    </div>
+    <div class="card">
+      <h2>Timestamp</h2>
+      <div class="value" id="timestamp">Loading...</div>
+    </div>
+  </div>
+
+  <button class="btn" onclick="fetchData()">🔄 Refresh</button>
+  <p class="status" id="status"></p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Student Name</th>
+        <th>Topic</th>
+      </tr>
+    </thead>
+    <tbody id="students">
+      <tr><td colspan="3">Loading students...</td></tr>
+    </tbody>
+  </table>
+
+  <script>
+    // -------------------------------------------------------
+    // The frontend talks to the backend using the Kubernetes
+    // Service name "backend-service" via ClusterIP.
+    // In production, you'd use your actual domain or NodePort.
+    // For this demo we use the NodePort exposed on the node.
+    // -------------------------------------------------------
+
+    // IMPORTANT: Replace this with your EC2 public IP when running
+    const BACKEND_URL = window.BACKEND_URL || 'http://localhost:5000';
+
+    async function fetchData() {
+      document.getElementById('status').textContent = 'Fetching from backend...';
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/message`);
+        const data = await res.json();
+        document.getElementById('message').textContent = data.message;
+        document.getElementById('pod').textContent = data.pod;
+        document.getElementById('timestamp').textContent = data.timestamp;
+        document.getElementById('status').textContent = '✅ Connected to backend successfully!';
+
+        const studRes = await fetch(`${BACKEND_URL}/api/students`);
+        const studData = await studRes.json();
+        const tbody = document.getElementById('students');
+        tbody.innerHTML = studData.students
+          .map(s => `<tr><td>${s.id}</td><td>${s.name}</td><td>${s.topic}</td></tr>`)
+          .join('');
+      } catch (err) {
+        document.getElementById('message').textContent = 'Error connecting to backend';
+        document.getElementById('message').className = 'value error';
+        document.getElementById('status').textContent = '❌ Could not reach backend: ' + err.message;
+        document.getElementById('status').className = 'status error';
+      }
+    }
+
+    // Auto-fetch on page load
+    fetchData();
+  </script>
+</body>
+</html>
