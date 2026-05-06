@@ -46,13 +46,13 @@ node --version
 **Kind = Kubernetes IN Docker.** It runs a full K8s cluster inside a Docker container on your machine — perfect for learning.
 
 ```bash
-kind create cluster --name demo
+kind create cluster
 ```
 
 Check the cluster is up:
 
 ```bash
-kubectl cluster-info --context kind-demo
+kubectl cluster-info --context kind-kind
 kubectl get nodes
 ```
 
@@ -60,7 +60,7 @@ You should see:
 
 ```
 NAME                 STATUS   ROLES           AGE
-demo-control-plane   Ready    control-plane   30s
+kind-control-plane   Ready    control-plane   30s
 ```
 
 ---
@@ -82,8 +82,8 @@ docker build -t k8s-demo-frontend:latest ./frontend
 Load them into the kind cluster:
 
 ```bash
-kind load docker-image k8s-demo-backend:latest --name demo
-kind load docker-image k8s-demo-frontend:latest --name demo
+kind load docker-image k8s-demo-backend:latest --name kind
+kind load docker-image k8s-demo-frontend:latest --name kind
 ```
 
 > **Why load?** Kind is isolated — it cannot see your local Docker images. We have to push them in manually.
@@ -312,23 +312,31 @@ Open `frontend/index.html` and find:
 const BACKEND_URL = window.BACKEND_URL || 'http://localhost:5000';
 ```
 
-Get your Node IP:
+Get your EC2 public IP:
 
 ```bash
-docker inspect demo-control-plane | grep '"IPAddress"'
+curl -s http://169.254.169.254/latest/meta-data/public-ipv4
 ```
 
-Replace `localhost:5000` with that IP and port `30500`:
+Edit `frontend/index.html` — replace `localhost:5000` with your EC2 public IP and NodePort `30500`:
 
-```javascript
-const BACKEND_URL = window.BACKEND_URL || 'http://<NODE-IP>:30500';
+```bash
+# Replace YOUR_EC2_PUBLIC_IP with the IP from the command above
+sed -i "s|http://localhost:5000|http://YOUR_EC2_PUBLIC_IP:30500|g" frontend/index.html
+```
+
+Verify:
+
+```bash
+grep "BACKEND_URL" frontend/index.html
+# Should show: http://YOUR_EC2_PUBLIC_IP:30500
 ```
 
 Rebuild and reload the frontend image:
 
 ```bash
 docker build -t k8s-demo-frontend:latest ./frontend
-kind load docker-image k8s-demo-frontend:latest --name demo
+kind load docker-image k8s-demo-frontend:latest --name kind
 
 # Restart frontend pods to pick up the new image
 kubectl rollout restart deployment frontend-deployment
@@ -367,6 +375,141 @@ curl http://<EC2-PUBLIC-IP>:30500/api/students
 ```
 
 Run the curl a few times — notice the `pod` field changes. That's **load balancing** — the Service is spreading requests across both backend pods.
+
+---
+
+## 🌐 Step 6.5 — Actually Accessing via EC2 Public IP (The Kind Gap)
+
+> ⚠️ **This is the most confusing part for beginners. Read this carefully.**
+
+### The Problem with Kind + EC2
+
+Kind runs your K8s cluster **inside a Docker container** on the EC2. So the network stack looks like this:
+
+```
+Your Browser
+     │
+     ▼
+EC2 Public IP (e.g. 16.16.251.63)
+     │
+     ▼
+EC2 host (Linux machine)
+     │
+     ▼
+Docker container (kind-control-plane)  ← this is your "Node"
+     │
+     ▼
+Your pods
+```
+
+When you create a NodePort at `30080`, that port opens on the **Docker container's network**, NOT on the EC2 host's public NIC. So hitting `http://16.16.251.63:30080` **won't work** out of the box — even if you open it in your EC2 Security Group.
+
+You have **two ways** to fix this:
+
+---
+
+### ✅ Method 1 — `kubectl port-forward` (Quick, works right now)
+
+The simplest approach: forward a port from the EC2 host directly into the cluster service.
+
+```bash
+# Terminal 1 — expose frontend on EC2 port 8080
+kubectl port-forward svc/frontend-service-nodeport 8080:80 --address 0.0.0.0
+```
+
+Now open your browser:
+
+```
+http://<EC2-PUBLIC-IP>:8080
+```
+
+> `--address 0.0.0.0` is critical — without it, it only listens on localhost and you can't reach it externally.
+
+Also forward the backend (in a separate terminal or use `&` to background it):
+
+```bash
+# Terminal 2 — expose backend on EC2 port 5000
+kubectl port-forward svc/backend-service-nodeport 5000:5000 --address 0.0.0.0
+```
+
+> ⚠️ **EC2 Security Group**: Make sure ports `8080` and `5000` are open for inbound TCP traffic (0.0.0.0/0).
+
+---
+
+### ✅ Method 2 — Kind `extraPortMappings` (Proper, permanent fix)
+
+This binds NodePorts directly to the EC2 host at cluster creation time. **This is the recommended approach.**
+
+```bash
+# Step 1: Delete the existing cluster (name defaults to "kind")
+kind delete cluster
+
+# Step 2: Create kind-config.yaml
+cat <<EOF > kind-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080   # NodePort for frontend
+        hostPort: 30080        # Port on EC2 host
+        protocol: TCP
+      - containerPort: 30500   # NodePort for backend
+        hostPort: 30500        # Port on EC2 host
+        protocol: TCP
+EOF
+
+# Step 3: Create cluster with the config (name will be "kind" by default)
+kind create cluster --config kind-config.yaml
+```
+
+Verify the cluster is up:
+
+```bash
+kind get clusters        # should show: kind
+kubectl get nodes        # should show: kind-control-plane   Ready
+```
+
+Now when a NodePort opens at `30080` inside the container, Kind **automatically maps it** to port `30080` on the EC2 host.
+
+```bash
+# Fix backend URL first (replace with your EC2 public IP)
+sed -i "s|http://localhost:5000|http://YOUR_EC2_PUBLIC_IP:30500|g" frontend/index.html
+grep "BACKEND_URL" frontend/index.html   # verify
+
+# Rebuild and reload images into the new cluster
+docker build -t k8s-demo-backend:latest ./backend
+docker build -t k8s-demo-frontend:latest ./frontend
+kind load docker-image k8s-demo-backend:latest --name kind
+kind load docker-image k8s-demo-frontend:latest --name kind
+
+# Apply all manifests
+kubectl apply -f k8s/
+
+# Verify everything is running
+kubectl get pods
+kubectl get services
+```
+
+Open in browser:
+
+```
+http://<EC2-PUBLIC-IP>:30080
+```
+
+> ⚠️ **EC2 Security Group**: Open ports `30080` and `30500` for inbound TCP traffic.
+
+---
+
+### Which method should you use?
+
+| Method | Pros | Cons |
+|---|---|---|
+| `kubectl port-forward` | Works immediately, no cluster recreation | Dies when terminal closes, not persistent |
+| `extraPortMappings` | Permanent, survives pod/node restarts | Requires recreating the cluster |
+
+For **learning** → Method 1 is fine.  
+For **a running demo** → Method 2 is the right approach.
 
 ---
 
@@ -463,5 +606,5 @@ kubectl get pods --watch
 
 ```bash
 kubectl delete -f k8s/
-kind delete cluster --name demo
+kind delete cluster
 ```
