@@ -41,17 +41,31 @@ node --version
 
 ---
 
-## ☸️ Step 2 — Create the Kind Cluster
+## 📦 Step 2 — Clone the Project
 
-**Kind = Kubernetes IN Docker.** It runs a full K8s cluster inside a Docker container on your machine — perfect for learning.
+Clone the repo first — it contains the `kind-config.yaml` file needed for the next step.
 
 ```bash
-kind create cluster
+git clone <your-repo-url> k8s_practice
+cd k8s_practice
 ```
 
-Check the cluster is up:
+---
+
+## ☸️ Step 3 — Create the Kind Cluster
+
+**Kind = Kubernetes IN Docker.** It runs a full K8s cluster inside a Docker container on your machine.
+
+The repo includes `kind-config.yaml` which uses **extraPortMappings** — this binds NodePorts `30080` and `30500` directly to the EC2 host so your browser can reach them.
 
 ```bash
+kind create cluster --config kind-config.yaml
+```
+
+Verify:
+
+```bash
+kind get clusters                      # should show: kind
 kubectl cluster-info --context kind-kind
 kubectl get nodes
 ```
@@ -65,21 +79,35 @@ kind-control-plane   Ready    control-plane   30s
 
 ---
 
-## 📦 Step 3 — Clone the Project & Build Images
+## 🔧 Step 4 — Update Backend URL & Build Images
+
+> ⚠️ **Do this BEFORE building the frontend image.** The URL is baked in at build time — if you build with `localhost:5000` it will never work from a browser.
+
+### 1. Get your EC2 public IP
 
 ```bash
-git clone <your-repo-url> k8s_practice
-cd k8s_practice
+curl -s http://169.254.169.254/latest/meta-data/public-ipv4
 ```
 
-Build both Docker images:
+### 2. Update the backend URL
+
+```bash
+# Replace YOUR_EC2_PUBLIC_IP with the actual IP from above
+sed -i "s|http://localhost:5000|http://YOUR_EC2_PUBLIC_IP:30500|g" frontend/index.html
+
+# Verify
+grep "BACKEND_URL" frontend/index.html
+# Must show: http://YOUR_EC2_PUBLIC_IP:30500
+```
+
+### 3. Build both Docker images
 
 ```bash
 docker build -t k8s-demo-backend:latest ./backend
 docker build -t k8s-demo-frontend:latest ./frontend
 ```
 
-Load them into the kind cluster:
+### 4. Load images into the Kind cluster
 
 ```bash
 kind load docker-image k8s-demo-backend:latest --name kind
@@ -90,7 +118,7 @@ kind load docker-image k8s-demo-frontend:latest --name kind
 
 ---
 
-## 🟦 Step 4 — Deployment
+## 🟦 Step 5 — Deployment
 
 ### What is a Deployment?
 
@@ -182,7 +210,7 @@ kubectl get pods
 
 ---
 
-## 🔌 Step 5 — Services (This Is Where It Gets Real)
+## 🔌 Step 6 — Services (This Is Where It Gets Real)
 
 You have 2 backend pods running. Each pod has its own IP address inside the cluster.
 
@@ -267,7 +295,7 @@ It works! Kubernetes has a built-in DNS — pods resolve service names automatic
 
 ---
 
-## 🟨 Step 6 — NodePort (Accessing from Outside)
+## 🟨 Step 7 — NodePort (Accessing from Outside)
 
 ClusterIP is great for internal traffic. But right now you can't open the frontend in your browser. There's no way in from outside the cluster.
 
@@ -304,43 +332,16 @@ spec:
 
 NodePort range is always **30000–32767** — Kubernetes reserves this range.
 
-### Before you apply — update the backend URL
+### ✅ Backend URL — already set in Step 4
 
-Open `frontend/index.html` and find:
-
-```javascript
-const BACKEND_URL = window.BACKEND_URL || 'http://localhost:5000';
-```
-
-Get your EC2 public IP:
-
-```bash
-curl -s http://169.254.169.254/latest/meta-data/public-ipv4
-```
-
-Edit `frontend/index.html` — replace `localhost:5000` with your EC2 public IP and NodePort `30500`:
-
-```bash
-# Replace YOUR_EC2_PUBLIC_IP with the IP from the command above
-sed -i "s|http://localhost:5000|http://YOUR_EC2_PUBLIC_IP:30500|g" frontend/index.html
-```
-
-Verify:
+You already updated `BACKEND_URL` to your EC2 public IP. Just verify:
 
 ```bash
 grep "BACKEND_URL" frontend/index.html
-# Should show: http://YOUR_EC2_PUBLIC_IP:30500
+# Must show: http://YOUR_EC2_PUBLIC_IP:30500
 ```
 
-Rebuild and reload the frontend image:
-
-```bash
-docker build -t k8s-demo-frontend:latest ./frontend
-kind load docker-image k8s-demo-frontend:latest --name kind
-
-# Restart frontend pods to pick up the new image
-kubectl rollout restart deployment frontend-deployment
-```
+> If it still shows `localhost:5000`, go back to Step 4, run the `sed` command, then rebuild and reload the frontend image.
 
 ### Apply the NodePort services
 
@@ -378,7 +379,7 @@ Run the curl a few times — notice the `pod` field changes. That's **load balan
 
 ---
 
-## 🌐 Step 6.5 — Actually Accessing via EC2 Public IP (The Kind Gap)
+## 🌐 Step 7.5 — Actually Accessing via EC2 Public IP (The Kind Gap)
 
 > ⚠️ **This is the most confusing part for beginners. Read this carefully.**
 
@@ -473,11 +474,7 @@ kubectl get nodes        # should show: kind-control-plane   Ready
 Now when a NodePort opens at `30080` inside the container, Kind **automatically maps it** to port `30080` on the EC2 host.
 
 ```bash
-# Fix backend URL first (replace with your EC2 public IP)
-sed -i "s|http://localhost:5000|http://YOUR_EC2_PUBLIC_IP:30500|g" frontend/index.html
-grep "BACKEND_URL" frontend/index.html   # verify
-
-# Rebuild and reload images into the new cluster
+# Rebuild and reload images (BACKEND_URL already set in Step 4)
 docker build -t k8s-demo-backend:latest ./backend
 docker build -t k8s-demo-frontend:latest ./frontend
 kind load docker-image k8s-demo-backend:latest --name kind
@@ -513,7 +510,7 @@ For **a running demo** → Method 2 is the right approach.
 
 ---
 
-## 🟥 Step 7 — LoadBalancer (Cloud Production)
+## 🟥 Step 8 — LoadBalancer (Cloud Production)
 
 NodePort works for learning, but it has problems in production:
 
